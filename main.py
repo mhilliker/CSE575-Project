@@ -85,6 +85,10 @@ all_features = ["ODATEDW", "OSOURCE", "TCODE", "STATE", "ZIP", "MAILCODE", "PVAS
                 "MDMAUD_A", "CLUSTER2", "GEOCODE2"]
 
 
+TRAINING_FILE = "cup98LRN.txt"
+VALIDATION_FILE = "cup98VAL.txt"
+
+
 def timeit(method):
     """Simple decorator to time how long a function runs."""
     def timed(*args, **kw):
@@ -158,6 +162,17 @@ def clean_data(data, is_training_set=False):
                                                            "training" if is_training_set else "testing"))
 
     return data
+
+
+def load_data_from_file(is_training_set=True):
+    """
+    Gets the data from either the training or testing file as a pandas data frame. All inputs are validated.
+    :param is_training_set: Flag to determine if the training or testing data set should get loaded.
+    :return: Data frame containing the requested data
+    """
+    file_to_load = TRAINING_FILE if is_training_set else VALIDATION_FILE
+    data = pd.read_csv(file_to_load, low_memory=False)
+    return clean_data(data, is_training_set)
 
 
 def report_predictions(X_test, y_pred):
@@ -283,11 +298,10 @@ def nn_classifier(X_train, X_test, used_features, nn, validation_data=None):
 
 
 if __name__ == "__main__":
-    data = pd.read_csv("cup98LRN.txt")
-    data = clean_data(data, True)
+    data = load_data_from_file(is_training_set=True)
 
-    # uncomment this when you want to generate labels
-    # VAL = clean_data(pd.read_csv("cup98VAL.txt"))
+    # uncomment this when you want to generate labels and pass it into the classifier functions
+    # VAL = load_data_from_file(is_training_set=False)
 
     X_train, X_test = train_test_split(data, test_size=0.8, random_state=int(time.time()))
     show_pca(X_train, 2)
