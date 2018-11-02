@@ -12,6 +12,6 @@ The environment.yml file should have all of the dependencies for this project su
  Additionally, you will need to include your own copies of cup98VAL.txt and cup98LRN.txt because they are too large to fit on Github.
  
  ## Project Structure
- At the moment, everything is in main.py becuase I was mostly just quickly getting a decent first submission done, but feel free to rsetructure and refactor as needed. A jupyter notebook will be added as well in order to provide better visualizations and organization.
+ At the moment, everything is in main.py becuase I was mostly just quickly getting a decent first submission done, but feel free to restructure and refactor as needed. A jupyter notebook is included as well in order to provide better visualizations and organization at some point.
  
  
