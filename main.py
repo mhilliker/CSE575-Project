@@ -1,7 +1,7 @@
 import pandas as pd
 import time
 from sklearn.model_selection import train_test_split
-from sklearn.naive_bayes import GaussianNB, BernoulliNB, MultinomialNB
+from sklearn.naive_bayes import BernoulliNB
 from sklearn.feature_extraction import FeatureHasher
 from sklearn.preprocessing import LabelEncoder, scale
 from sklearn.linear_model import LogisticRegression
@@ -10,12 +10,11 @@ from sklearn.tree import DecisionTreeClassifier
 from sklearn import svm
 from sklearn.decomposition import PCA
 from sklearn.neural_network import MLPClassifier
-import sys
 import operator
-import tensorflow
 from keras.models import Sequential
 from keras.layers import Dense, Activation,Dropout
 from keras.layers.normalization import BatchNormalization
+
 
 # features that need to be turned into discrete values
 features_to_categorize = ["OSOURCE", "STATE", "ZIP", "MAILCODE", "PVASTATE", "NOEXCH", "RECINHSE", "RECP3",
@@ -87,6 +86,7 @@ all_features = ["ODATEDW", "OSOURCE", "TCODE", "STATE", "ZIP", "MAILCODE", "PVAS
 
 
 def timeit(method):
+    """Simple decorator to time how long a function runs."""
     def timed(*args, **kw):
         ts = time.time()
         result = method(*args, **kw)
@@ -102,14 +102,21 @@ def timeit(method):
 
 
 def show_pca(df, num_components=10):
+    """Performs principle component analysis on the given data frame."""
     print("PCA with ", num_components, " components")
     data_scaled = pd.DataFrame(scale(df), columns=df.columns)
     pca = PCA(n_components=num_components)
     pca.fit_transform(data_scaled)
     print(pd.DataFrame(pca.components_, columns=data_scaled.columns, index=["PCA-{0}".format(x) for x in range(num_components)]))
+    return pca
 
 
 def label_encode(df, features):
+    """
+    Encodes the categorical features to integers
+    :param df: data frame
+    :param features: array of feature names to encode
+    """
     lb_make = LabelEncoder()
     for feature in features:
         try:
@@ -119,6 +126,12 @@ def label_encode(df, features):
 
 
 def clean_data(data, is_training_set=False):
+    """
+    Encodes categorical values and removes NAN records from the
+    :param data: data frame containing either the training or validation data sets
+    :param is_training_set: true if the training set is being cleaned up
+    :return: clean data frame
+    """
     for i in range(2, 24):
         features_to_categorize.append("ADATE_{0}".format(i))
         features_to_categorize.append("RFA_{0}".format(i))
@@ -129,7 +142,6 @@ def clean_data(data, is_training_set=False):
     # these mix string, null, and int so it freaks out
     data[['NOEXCH', 'GEOCODE2']] = data[['NOEXCH', 'GEOCODE2']].astype(str)
     label_encode(data, features_to_categorize)
-    print("categorization complete")
 
     used_features = all_features
     if is_training_set:
@@ -149,6 +161,11 @@ def clean_data(data, is_training_set=False):
 
 
 def report_predictions(X_test, y_pred):
+    """
+    Prints the confusion matrix, classification report, and the number of mislabeled points in the test partition.
+    :param X_test: Test partition of the data set including the target label.  This is not the validation set.
+    :param y_pred: Predicted values of the test set.
+    """
     print("Number of mislabeled points out of a total {} points : {}, performance {:05.2f}%"
         .format(
         X_test.shape[0],
@@ -159,40 +176,22 @@ def report_predictions(X_test, y_pred):
     print(classification_report(X_test["TARGET_B"], y_pred))
 
 
-def generate_labels(LRN, LRN_pred, output_file):
+def generate_labels(validation_input, validation_prediction, output_file_name):
+    """
+    Generates the labels for the project submission.
+    You should ensure that the final file name is labels.csv before submitting.
+    """
     pos_count = 0
-    with open("predictions.txt", "w") as output_file:
-        for index, row in LRN.iterrows():
+    with open(output_file_name, "w") as output_file:
+        for index, row in validation_input.iterrows():
             control_n = int(row['CONTROLN'])
-            label = LRN_pred[index]
+            label = validation_prediction[index]
             if str(label) != "0":
                 pos_count += 1
             val = "{0},{1}\n".format(control_n, label)
             output_file.write(val)
     print("Output file generated successfully. Num positive: " + str(pos_count))
 
-
-# Importing data set
-data = pd.read_csv("cup98LRN.txt")
-
-# Convert categorical variable to numeric
-data = clean_data(data, True)
-
-
-# Split data set in training and test datasets
-X_train, X_test = train_test_split(data, test_size=0.8, random_state=int(time.time()))
-
-
-# check PCA of Data
-show_pca(X_train, 2)
-
-
-# Train classifiers
-
-used_features = all_features # in the future, select features more intelligently
-
-#LRN = pd.read_csv("cup98VAL.txt")
-#LRN = clean_data(LRN)
 
 def bernoulli_naive_bayes(X_train, X_test, used_features, validation_data=None):
     print("BernoulliNB:")
@@ -208,10 +207,7 @@ def bernoulli_naive_bayes(X_train, X_test, used_features, validation_data=None):
         validation_prediction = bnb.predict(validation_data)
         generate_labels(validation_data, validation_prediction, "BNBlabels.csv")
 
-bernoulli_naive_bayes(X_train, X_test, used_features)
 
-
-@timeit
 def logistic_regression(X_train, X_test, used_features, validation_data=None):
     print("Logistic Regression:")
     log_reg = LogisticRegression(solver='sag', max_iter=300, C=.01)
@@ -223,9 +219,6 @@ def logistic_regression(X_train, X_test, used_features, validation_data=None):
     if validation_data is not None:
         validation_prediction = log_reg.predict(validation_data)
         generate_labels(validation_data, validation_prediction, "LRlabels.csv")
-
-
-logistic_regression(X_train, X_test, used_features)
 
 
 def decision_tree_classifier(X_train, X_test, used_features, validation_data=None, show_feature_importance=False):
@@ -255,17 +248,14 @@ def decision_tree_classifier(X_train, X_test, used_features, validation_data=Non
     pd.Series(classifier.feature_importances_, index=X_train[used_features].columns).plot.bar(color='steelblue',
                                                                                               figsize=(12, 6))
 
-decision_tree_classifier(X_train, X_test, used_features, show_feature_importance=True)
-
 
 def _feed_forward_nn(X, Y, verbose=True) -> Sequential:
     model = Sequential()
-    # model.add(Dense(100, activation='relu', input_dim=479))
-    model.add(Dense(100, input_dim=479))
-    model.add(Activation('relu'))
+    model.add(Dense(100, activation='relu', input_dim=479))
     model.add(Dropout(0.25))
     model.add(Dense(100, activation='relu'))
     model.add(Dropout(0.5))
+    model.add(BatchNormalization())
     model.add(Dense(2, activation='softmax'))
     model.compile(optimizer='nadam',
                   loss='sparse_categorical_crossentropy',
@@ -274,18 +264,39 @@ def _feed_forward_nn(X, Y, verbose=True) -> Sequential:
     return model
 
 
-def nn_classifier(X_test, used_features, validation_data=None):
-    print("Feed forward neural net (100,100,2)")
-    neural_net = _feed_forward_nn(data[used_features].values, data[["TARGET_B"]], verbose=False)
+def nn_classifier(X_train, X_test, used_features, nn, validation_data=None):
+    """
+    Generic interface to test neural networks created in Keras.
+    :param X_train:  Input Training Data
+    :param X_test:  Input Test Data
+    :param used_features: Features to use for the model
+    :param nn: function(X,Y, verbose) that generates and trains the model
+    :param validation_data: data used to generate submission labels
+    """
+    neural_net = nn(X_train[used_features].values, X_train[["TARGET_B"]], verbose=False)
     y_pred = neural_net.predict_classes(X_test[used_features])
-    y_list = y_pred.tolist()
     report_predictions(X_test, y_pred)
 
     if validation_data is not None:
         validation_prediction = neural_net.predict(validation_data)
         generate_labels(validation_data, validation_prediction, "NNlabels.csv")
 
-nn_classifier(X_test, used_features)
+
+if __name__ == "__main__":
+    data = pd.read_csv("cup98LRN.txt")
+    data = clean_data(data, True)
+
+    # uncomment this when you want to generate labels
+    # VAL = clean_data(pd.read_csv("cup98VAL.txt"))
+
+    X_train, X_test = train_test_split(data, test_size=0.8, random_state=int(time.time()))
+    show_pca(X_train, 2)
+    used_features = all_features # in the future, select features more intelligently
+
+    bernoulli_naive_bayes(X_train, X_test, used_features)
+    logistic_regression(X_train, X_test, used_features)
+    decision_tree_classifier(X_train, X_test, used_features, show_feature_importance=True)
+    nn_classifier(X_train ,X_test, used_features, _feed_forward_nn)
 
 """
 NOTES:  
@@ -295,6 +306,3 @@ NOTES:
 - CHILD* could hot-encode M/F child existance or count
 - 
 """
-
-
-
