@@ -9,11 +9,27 @@ from sklearn.metrics import classification_report, confusion_matrix
 from sklearn.tree import DecisionTreeClassifier
 from sklearn import svm
 from sklearn.decomposition import PCA
+from sklearn.ensemble import RandomForestClassifier
 from sklearn.neural_network import MLPClassifier
 import operator
 from keras.models import Sequential
 from keras.layers import Dense, Activation,Dropout
 from keras.layers.normalization import BatchNormalization
+from keras.utils import plot_model
+import matplotlib.pyplot as plt
+import random
+from multiprocessing import Process
+
+
+# I used the decision tree feature gatherer from utils.py to gather these features.
+# They can be used to speed up training during experiments with various models.
+features_100 = ['CONTROLN', 'RAMNT_11', 'AVGGIFT', 'ZIP', 'AGE', 'RAMNT_8', 'NEXTDATE', 'MAXRDATE', 'OSOURCE', 'POP903', 'MINRDATE', 'RAMNT_13', 'POP901', 'RAMNT_23', 'RAMNT_3', 'POP902', 'RDATE_3', 'RAMNT_14', 'NUMPROM', 'RAMNT_9', 'RAMNT_16', 'TIMELAG', 'RAMNT_6', 'RAMNTALL', 'RAMNT_12', 'RAMNT_15', 'RDATE_11', 'RAMNT_20', 'RAMNT_19', 'WEALTH1', 'RDATE_13', 'RAMNT_7', 'FISTDATE', 'RAMNT_4', 'NUMPRM12', 'RAMNT_18', 'RDATE_6', 'WEALTH2', 'RDATE_4', 'RAMNT_24']
+features_test = ['CONTROLN', 'RAMNT_11', 'AVGGIFT', 'ZIP', 'AGE', 'NEXTDATE', 'MAXRDATE', 'OSOURCE', 'POP903', 'MINRDATE', 'RDATE_3', 'NUMPROM', 'TIMELAG', 'RAMNTALL', 'WEALTH1', 'FISTDATE', 'NUMPRM12', 'WEALTH2']
+
+
+# Worker processes to do various tasks in the background.
+# Iterate through this array at the end and ensure that all processes have ended.
+worker_processes = []
 
 
 # features that need to be turned into discrete values
@@ -143,6 +159,10 @@ def clean_data(data, is_training_set=False):
         features_to_categorize.append("RDATE_{0}".format(i))
         features_to_categorize.append("RAMNT_{0}".format(i))
 
+    # fix the - appearing in zip column
+    for index, row in data.iterrows():
+        row["ZIP"]=row["ZIP"].replace('-','')
+
     # these mix string, null, and int so it freaks out
     data[['NOEXCH', 'GEOCODE2']] = data[['NOEXCH', 'GEOCODE2']].astype(str)
     label_encode(data, features_to_categorize)
@@ -175,6 +195,18 @@ def load_data_from_file(is_training_set=True):
     return clean_data(data, is_training_set)
 
 
+def undersample_data(df, value_to_drop=0, drop_rate=0.5):
+    rows_to_drop = []
+    row_index = -1
+    for index, row in df.iterrows():
+        row_index += 1
+        if int(row['TARGET_B']) != value_to_drop:
+            continue
+        if random.random() < drop_rate:
+            rows_to_drop.append(row_index)
+    df = df.drop(df.index[rows_to_drop])
+    return df
+
 def report_predictions(X_test, y_pred):
     """
     Prints the confusion matrix, classification report, and the number of mislabeled points in the test partition.
@@ -189,6 +221,7 @@ def report_predictions(X_test, y_pred):
     ))
     print(confusion_matrix(X_test["TARGET_B"], y_pred))
     print(classification_report(X_test["TARGET_B"], y_pred))
+    return 100 * (1 - (X_test["TARGET_B"] != y_pred).sum() / X_test.shape[0])
 
 
 def generate_labels(validation_input, validation_prediction, output_file_name):
@@ -219,20 +252,20 @@ def bernoulli_naive_bayes(X_train, X_test, used_features, validation_data=None):
     report_predictions(X_test, y_pred)
 
     if validation_data is not None:
-        validation_prediction = bnb.predict(validation_data)
+        validation_prediction = bnb.predict(validation_data[used_features])
         generate_labels(validation_data, validation_prediction, "BNBlabels.csv")
 
 
 def logistic_regression(X_train, X_test, used_features, validation_data=None):
     print("Logistic Regression:")
-    log_reg = LogisticRegression(solver='sag', max_iter=300, C=.01)
+    log_reg = LogisticRegression(solver='sag', max_iter=3000, C=.01)
     log_reg.fit(X_train[used_features].values,
                X_train["TARGET_B"])
     y_pred = log_reg.predict(X_test[used_features])
     report_predictions(X_test, y_pred)
 
     if validation_data is not None:
-        validation_prediction = log_reg.predict(validation_data)
+        validation_prediction = log_reg.predict(validation_data[used_features])
         generate_labels(validation_data, validation_prediction, "LRlabels.csv")
 
 
@@ -245,11 +278,11 @@ def decision_tree_classifier(X_train, X_test, used_features, validation_data=Non
     report_predictions(X_test, y_pred)
 
     if validation_data is not None:
-        validation_prediction = classifier.predict(validation_data)
+        validation_prediction = classifier.predict(validation_data[used_features])
         generate_labels(validation_data, validation_prediction, "DTClabels.csv")
 
     if show_feature_importance is False:
-        return
+        return classifier.feature_importances_
 
     print("Top Features:")
     feature_ranks = []
@@ -260,24 +293,57 @@ def decision_tree_classifier(X_train, X_test, used_features, validation_data=Non
         importance = "{:10.4f}".format(feature_ranks[i][0])
         print("{0}\t{1}".format(importance, feature_ranks[i][1]))
 
-    pd.Series(classifier.feature_importances_, index=X_train[used_features].columns).plot.bar(color='steelblue',
-                                                                                              figsize=(12, 6))
+    pd.Series(classifier.feature_importances_, index=X_train[used_features].columns).plot.bar(color='steelblue',figsize=(12, 6))
+
+
+def random_forest_classifier(X_train, X_test, used_features, validation_data=None):
+    print("Random Forest:")
+    classifier = RandomForestClassifier(n_estimators=1000, bootstrap=False, min_samples_leaf=4, min_samples_split=10, max_depth=80, max_features="sqrt")
+    classifier.fit(X_train[used_features].values,
+                   X_train["TARGET_B"])
+    y_pred = classifier.predict(X_test[used_features])
+    report_predictions(X_test, y_pred)
+
+    if validation_data is not None:
+        validation_prediction = classifier.predict(validation_data[used_features])
+        generate_labels(validation_data, validation_prediction, "RFClabels.csv")
 
 
 def _feed_forward_nn(X, Y, verbose=True) -> Sequential:
+    """Two dense layers with dropout, a batch normalization layer, and a softmax output layer."""
     model = Sequential()
-    model.add(Dense(100, activation='relu', input_dim=479))
-    model.add(Dropout(0.25))
-    model.add(Dense(100, activation='relu'))
+    model.add(Dense(90, activation='relu', input_shape=(X.shape[1],)))
+    model.add(Dropout(0.5))
+    model.add(Dense(90, activation='relu'))
     model.add(Dropout(0.5))
     model.add(BatchNormalization())
     model.add(Dense(2, activation='softmax'))
-    model.compile(optimizer='nadam',
-                  loss='sparse_categorical_crossentropy',
-                  metrics=['accuracy'])
-    model.fit(X, Y, verbose=verbose, shuffle=True, epochs=10, batch_size=16, validation_split=0.2)
+    model.compile(optimizer='Adam', loss='sparse_categorical_crossentropy', metrics=['accuracy'])
+    history = model.fit(X, Y, verbose=verbose, shuffle=True, epochs=10, batch_size=16, validation_split=0.2)
+    p = Process(target=_plot_model_history, args=(history,))
+    worker_processes.append(p)
+    p.start()
+    plot_model(model, to_file='model.png', show_layer_names=False, show_shapes=True)
     return model
 
+def _plot_model_history(history):
+    """Plot training & validation accuracy values"""
+    plt.plot(history.history['acc'])
+    plt.plot(history.history['val_acc'])
+    plt.title('Model accuracy')
+    plt.ylabel('Accuracy')
+    plt.xlabel('Epoch')
+    plt.legend(['Train', 'Test'], loc='upper left')
+    plt.show()
+
+    # Plot training & validation loss values
+    plt.plot(history.history['loss'])
+    plt.plot(history.history['val_loss'])
+    plt.title('Model loss')
+    plt.ylabel('Loss')
+    plt.xlabel('Epoch')
+    plt.legend(['Train', 'Test'], loc='upper left')
+    plt.show()
 
 def nn_classifier(X_train, X_test, used_features, nn, validation_data=None):
     """
@@ -293,30 +359,37 @@ def nn_classifier(X_train, X_test, used_features, nn, validation_data=None):
     report_predictions(X_test, y_pred)
 
     if validation_data is not None:
-        validation_prediction = neural_net.predict(validation_data)
+        validation_prediction = neural_net.predict_classes(validation_data[used_features])
         generate_labels(validation_data, validation_prediction, "NNlabels.csv")
+
+
+def svc(X_train, X_test, used_features, validation_data=None, kernel='rbf'):
+    classifier = svm.SVC(kernel=kernel, C=10.0, verbose=True)
+    classifier.fit(X_train[used_features].values, X_train["TARGET_B"])
+    y_pred = classifier.predict(X_test[used_features])
+    report_predictions(X_test, y_pred)
+
+    if validation_data is not None:
+        validation_prediction = classifier.predict(validation_data[used_features])
+        generate_labels(validation_data, validation_prediction, kernel + "SVClabels.csv")
 
 
 if __name__ == "__main__":
     data = load_data_from_file(is_training_set=True)
 
+    VAL = None
     # uncomment this when you want to generate labels and pass it into the classifier functions
-    # VAL = load_data_from_file(is_training_set=False)
+    VAL = load_data_from_file(is_training_set=False)
 
     X_train, X_test = train_test_split(data, test_size=0.8, random_state=int(time.time()))
-    show_pca(X_train, 2)
-    used_features = all_features # in the future, select features more intelligently
+    used_features = all_features # you can swap this out for features_100 or features_test to train faster
 
-    bernoulli_naive_bayes(X_train, X_test, used_features)
-    logistic_regression(X_train, X_test, used_features)
-    decision_tree_classifier(X_train, X_test, used_features, show_feature_importance=True)
-    nn_classifier(X_train ,X_test, used_features, _feed_forward_nn)
+    # add a model below or uncomment to try an example
+    #bernoulli_naive_bayes(X_train, X_test, used_features, validation_data=VAL)
+    #logistic_regression(X_train, X_test, used_features, validation_data=VAL)
+    #decision_tree_classifier(X_train, X_test, used_features, show_feature_importance=True, validation_data=VAL)
+    #random_forest_classifier(X_train, X_test, used_features, validation_data=VAL)
+    nn_classifier(X_train ,X_test, used_features, _feed_forward_nn, validation_data=VAL)
 
-"""
-NOTES:  
-- ZIP needs cleaning before encoding
-- MDMAUD should be broken up
-- DOMAIN should be broken up
-- CHILD* could hot-encode M/F child existance or count
-- 
-"""
+    for job in worker_processes:
+        job.join()
