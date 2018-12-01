@@ -12,6 +12,7 @@ The environment.yml file should have all of the dependencies for this project su
  Additionally, you will need to include your own copies of cup98VAL.txt and cup98LRN.txt because they are too large to fit on Github.
  
  ## Project Structure
-main.py - Main model implementations
-utils.py - Random utility functions that were created along the way
-models.ipynb - Unused in branch, intended for individual use for experimenting, only contains a simple example
+* main.py - Main model implementations
+* utils.py - Random utility functions that were created along the way
+* models.ipynb - Intended for individual use for experimenting, only contains a simple example, unused in master branch
+* environment.yml - YAML file that can be used by anaconda to import dependencies
