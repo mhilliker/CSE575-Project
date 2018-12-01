@@ -313,9 +313,9 @@ def _feed_forward_nn(X, Y, verbose=True) -> Sequential:
     """Two dense layers with dropout, a batch normalization layer, and a softmax output layer."""
     model = Sequential()
     model.add(Dense(90, activation='relu', input_shape=(X.shape[1],)))
-    model.add(Dropout(0.5))
+    model.add(Dropout(0.25))
     model.add(Dense(90, activation='relu'))
-    model.add(Dropout(0.5))
+    model.add(Dropout(0.25))
     model.add(BatchNormalization())
     model.add(Dense(2, activation='softmax'))
     model.compile(optimizer='Adam', loss='sparse_categorical_crossentropy', metrics=['accuracy'])
